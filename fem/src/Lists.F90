@@ -3355,7 +3355,7 @@ use spariterglobals
     END SUBROUTINE ListAddConstRealArray
 !------------------------------------------------------------------------------
 
-
+    
 !------------------------------------------------------------------------------
 !> Adds a real array where the components are linearly dependent.
 !------------------------------------------------------------------------------
@@ -3398,6 +3398,84 @@ use spariterglobals
 !------------------------------------------------------------------------------
 
 
+!------------------------------------------------------------------------------
+! Given real array transform it to dependence array. This can only be done
+! if the size of the array is suitable. 
+!------------------------------------------------------------------------------ 
+   SUBROUTINE ListRealArrayToDepReal(List,Name,DepName,CubicTable,Monotone)
+     TYPE(ValueList_t), POINTER :: List
+     CHARACTER(LEN=*) :: Name
+     CHARACTER(LEN=*) :: DepName
+     LOGICAL, OPTIONAL :: CubicTable, Monotone
+     
+     TYPE(ValueListEntry_t), POINTER :: ptr
+     INTEGER :: n,m
+     REAL(KIND=dp), ALLOCATABLE :: TmpValues(:,:,:)
+     
+     ptr => ListFind( List, Name )
+
+     ! Change only constant real array!
+     IF( ptr % TYPE /= LIST_TYPE_CONSTANT_TENSOR ) RETURN
+
+     IF(.NOT. ASSOCIATED(ptr) ) THEN
+       CALL Warn('ListRealArrayToDepArray','Could not find: '//TRIM(Name))
+       RETURN
+     END IF
+
+     IF( ptr % Fdim < 2 ) THEN
+       CALL Warn('ListRealArrayToDepArray','No array form to transform!')
+       RETURN
+     END IF
+
+     n = SIZE(ptr % FValues,1)
+     m = SIZE(ptr % FValues,2)
+
+     IF( m /= 2 ) THEN
+       CALL Warn('ListRealArrayToDepArray','Number of columns must be 2!')
+       RETURN
+     END IF
+
+     ALLOCATE( TmpValues(n,m,1) )
+     TmpValues = ptr % FValues
+     DEALLOCATE( ptr % FValues )
+
+     ALLOCATE( ptr % FValues(1,1,n), ptr % TValues(n) )
+     ptr % FValues(1,1,1:n) = TmpValues(1:n,2,1)
+     ptr % TValues(1:n) = TmpValues(1:n,1,1)
+     DEALLOCATE( TmpValues ) 
+          
+     ! The (x,y) table should be such that values of x are increasing in size
+     IF( .NOT. CheckMonotone( n, ptr % FValues(1,1,:) ) ) THEN
+       CALL Fatal('ListRealArrayToDepReal',&
+           'Values x in > '//TRIM(Name)//' < not monotonically ordered!')
+     END IF
+
+     ! Make it cubic if asked
+     IF ( n>3 .AND. PRESENT(CubicTable)) THEN
+       IF ( CubicTable ) THEN
+         ALLOCATE(ptr % CubicCoeff(n))
+         CALL CubicSpline(n,ptr % TValues,Ptr % Fvalues(1,1,:), &
+             Ptr % CubicCoeff, Monotone )
+       END IF
+     END IF
+
+     ALLOCATE(ptr % Cumulative(n))
+     CALL CumulativeIntegral(ptr % TValues, Ptr % FValues(1,1,:), &
+          Ptr % CubicCoeff, Ptr % Cumulative )
+     
+     ! Copy the depname     
+     ptr % DepNameLen = StringToLowerCase( ptr % DependName,DepName )
+
+     ! Finally, change the type 
+     ptr % TYPE = LIST_TYPE_VARIABLE_SCALAR
+
+     CALL Info('ListRealArrayToDepReal',&
+         'Changed constant array to dependence table of size '//TRIM(I2S(n))//'!')
+     
+   END SUBROUTINE ListRealArrayToDepReal
+
+
+   
 !------------------------------------------------------------------------------
 !> Adds a logical entry to the list if it does not exist previously.
 !------------------------------------------------------------------------------
