@@ -5053,14 +5053,16 @@ use spariterglobals
      REAL(KIND=dp), OPTIONAL :: dFdx, eps
 !------------------------------------------------------------------------------
      TYPE(Variable_t), POINTER :: Variable, CVar, TVar
-     TYPE(ValueListEntry_t), POINTER :: ptr
+     TYPE(ValueListEntry_t), POINTER :: ptr, prevptr, derptr
      REAL(KIND=dp) :: T(1)
      INTEGER :: i,j,k,k1,l,l0,l1,lsize
      CHARACTER(LEN=MAX_NAME_LEN) ::  cmd, tmp_str
-     LOGICAL :: AllGlobal
+     LOGICAL :: AllGlobal, GotIt
      REAL(KIND=dp) :: xeps, F2, F1
 !------------------------------------------------------------------------------
 
+     SAVE prevptr, derptr
+     
      F = 0.0_dp
      IF( PRESENT( Name ) ) THEN
        ptr => ListFind(List,Name,Found)
@@ -5078,6 +5080,15 @@ use spariterglobals
      k = 0
      T(1) = x
 
+     ! See if we have analytical derivative available.
+     ! This is list-specific, hence memorize it. 
+     IF( PRESENT( DfDx) ) THEN
+       IF( .NOT. ASSOCIATED( Ptr, PrevPtr ) ) THEN
+         PrevPtr => Ptr
+         derPtr => ListFind(List,TRIM(Name)//' Derivative',GotIt )       
+       END IF
+     END IF
+       
      SELECT CASE(ptr % TYPE)
 
      CASE( LIST_TYPE_CONSTANT_SCALAR )
@@ -5101,18 +5112,27 @@ use spariterglobals
          F = ExecRealFunction( ptr % PROCEDURE,CurrentModel, k, T(1) )
 
          ! Compute derivative at the point if requested
-         ! Numerical central difference scheme is used for accuracy. 
          IF( PRESENT( dFdx ) ) THEN
-           IF( PRESENT( eps ) ) THEN
-             xeps = eps
+           IF( ASSOCIATED( derPtr ) ) THEN
+             ! Analytical derivative available in another UDF
+             IF(derptr % PROCEDURE /= 0) THEN
+               dFdx = ExecRealFunction( derptr % PROCEDURE, CurrentModel, k, T(1) )
+             ELSE
+               CALL Fatal('ListGetFun','Derivative should be UDF if primary keyword is!')
+             END IF
            ELSE
-             xeps = 1.0d-8
+             ! Numerical central difference scheme is used for accuracy. 
+             IF( PRESENT( eps ) ) THEN
+               xeps = eps
+             ELSE
+               xeps = 1.0d-8
+             END IF
+             T(1) = x - xeps
+             F1 = ExecRealFunction( ptr % PROCEDURE,CurrentModel, k, T(1) )
+             T(1) = x + xeps
+             F2 = ExecRealFunction( ptr % PROCEDURE,CurrentModel, k, T(1) )
+             dFdx = ( F2 - F1 ) / (2*xeps)
            END IF
-           T(1) = x - xeps
-           F1 = ExecRealFunction( ptr % PROCEDURE,CurrentModel, k, T(1) )
-           T(1) = x + xeps
-           F2 = ExecRealFunction( ptr % PROCEDURE,CurrentModel, k, T(1) )
-           dFdx = ( F2 - F1 ) / (2*xeps)
          END IF
          CALL ListPopActiveName()
        ELSE
@@ -5142,36 +5162,48 @@ use spariterglobals
        CALL matc( cmd, tmp_str, k1 )
        READ( tmp_str(1:k1), * ) F
 
-       ! This is really expensive. 
-       ! For speed also one sided difference could be considered. 
        IF( PRESENT( dFdx ) ) THEN
-         IF( PRESENT( eps ) ) THEN
-           xeps = eps
-         ELSE
-           xeps = 1.0d-8
+         IF( ASSOCIATED( derPtr ) ) THEN
+           ! Compute also derivative from MATC expression
+           IF( derPtr % TYPE ==  LIST_TYPE_VARIABLE_SCALAR_STR ) THEN
+             cmd = derptr % CValue
+             k1 = LEN_TRIM(cmd)
+             CALL matc( cmd, tmp_str, k1 )
+             READ( tmp_str(1:k1), * ) dFdx
+           ELSE
+             CALL Fatal('ListGetFun','Derivative should be MATC if primary keyword is!')
+           END IF
+         ELSE           
+           ! This is really expensive. 
+           ! For speed also one sided difference could be considered. 
+           IF( PRESENT( eps ) ) THEN
+             xeps = eps
+           ELSE
+             xeps = 1.0d-8
+           END IF
+
+           WRITE( cmd, * ) 'tx=', x-xeps
+           k1 = LEN_TRIM(cmd)
+           CALL matc( cmd, tmp_str, k1 )
+
+           cmd = ptr % CValue
+           k1 = LEN_TRIM(cmd)
+           CALL matc( cmd, tmp_str, k1 )
+           READ( tmp_str(1:k1), * ) F1
+
+           WRITE( cmd, * ) 'tx=', x+xeps
+           k1 = LEN_TRIM(cmd)
+           CALL matc( cmd, tmp_str, k1 )
+
+           cmd = ptr % CValue
+           k1 = LEN_TRIM(cmd)
+           CALL matc( cmd, tmp_str, k1 )
+           READ( tmp_str(1:k1), * ) F2
+
+           dFdx = (F2-F1) / (2*xeps)
          END IF
-         
-         WRITE( cmd, * ) 'tx=', x-xeps
-         k1 = LEN_TRIM(cmd)
-         CALL matc( cmd, tmp_str, k1 )
-         
-         cmd = ptr % CValue
-         k1 = LEN_TRIM(cmd)
-         CALL matc( cmd, tmp_str, k1 )
-         READ( tmp_str(1:k1), * ) F1
-         
-         WRITE( cmd, * ) 'tx=', x+xeps
-         k1 = LEN_TRIM(cmd)
-         CALL matc( cmd, tmp_str, k1 )
-         
-         cmd = ptr % CValue
-         k1 = LEN_TRIM(cmd)
-         CALL matc( cmd, tmp_str, k1 )
-         READ( tmp_str(1:k1), * ) F2
-
-         dFdx = (F2-F1) / (2*xeps)
        END IF
-
+         
      CASE DEFAULT
        CALL Fatal('ListGetFun','LIST_TYPE not implemented!')
 

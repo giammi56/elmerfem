@@ -788,15 +788,14 @@ CONTAINS
 
     Material => GetMaterial(Element)
 
+    HBCurve = ListCheckPresent(Material,'H-B Curve')
     Zirka = ListGetLogical(Material, 'Zirka material', Zirka)
+
     IF (zirka) THEN
       CALL GetLocalSolution(POT,UElement=Element,USolver=Solver)
       zirkamodel => GetZirkaPointer(Material)
       hystvar => GetZirkaVariable(Material)
-    END IF
-
-    HBCurve = ListCheckPresent(Material,'H-B Curve')
-    IF(HBcurve) THEN
+    ELSE IF(HBcurve) THEN
       CALL GetLocalSolution(POT,UElement=Element,USolver=Solver)
     ELSE
       CALL GetReluctivity(Material,R,n,Element)
