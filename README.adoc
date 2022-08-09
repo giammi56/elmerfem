@@ -71,6 +71,7 @@ You may find the PDFs for the documentation http://www.elmerfem.org/blog/documen
 
  * Download the source code and create `build` directory as above
  * Install the dependencies `sudo apt install git cmake build-essential gfortran libopenmpi-dev libblas-dev liblapack-dev`
+ * For Ubuntu 20.04 install Qt5 dependencies `sudo apt install qt5-default qtscript5-dev libqwt-qt5-dev`
  * Without MPI:
     ** `cmake .. -DWITH_OpenMP:BOOLEAN=TRUE`
  * With MPI:
